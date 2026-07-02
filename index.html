@@ -1,9 +1,10 @@
+HTML
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Squirrels Parent Attendance Tracker</title>
+    <title>Squirrels Parent Attendance Tracker (Google Sheets)</title>
     <style>
         :root {
             --primary-color: #5c3c92;
@@ -65,7 +66,7 @@
             box-sizing: border-box;
             font-size: 16px;
             background-color: white;
-            height: 44px; /* Consistent height for mobile tapping */
+            height: 44px;
         }
 
         #otherNameWrapper {
@@ -98,10 +99,6 @@
             margin-bottom: 20px;
             border-radius: 4px;
             display: none;
-        }
-
-        .warning-banner h3 {
-            margin: 0 0 5px 0;
         }
 
         table {
@@ -137,37 +134,24 @@
             background-color: #fce8e6;
             color: var(--warning-color);
         }
-
-        .action-btn {
-            background-color: #ff4d4d;
-            padding: 5px 10px;
-            font-size: 12px;
-            height: auto;
-        }
-        .action-btn:hover {
-            background-color: #cc0000;
-        }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Squirrels Attendance Tracker</h1>
-    <p>Log expected parent attendance. A warning triggers if a parent is scheduled for more than 3 visits within any rolling 30-day window.</p>
+    <p>Data links directly to your Google Sheet on Drive.</p>
 
-    <!-- Warning Alert Box -->
     <div id="warningBanner" class="warning-banner">
         <h3>⚠️ Attendance Warning</h3>
         <span id="warningMessage"></span>
     </div>
 
-    <!-- Attendance Form -->
     <div class="form-group">
         <div>
             <label for="parentSelect">Select Parent</label>
             <select id="parentSelect" onchange="toggleOtherInput()">
                 <option value="">-- Choose a parent --</option>
-                <!-- Options will be generated alphabetically via JavaScript -->
             </select>
             <div id="otherNameWrapper">
                 <input type="text" id="otherName" placeholder="Type parent's full name">
@@ -178,11 +162,10 @@
             <input type="date" id="sessionDate" required>
         </div>
         <div>
-            <button onclick="addAttendance()">Add Visit</button>
+            <button id="submitBtn" onclick="addAttendance()">Add Visit</button>
         </div>
     </div>
 
-    <!-- Attendance Table -->
     <h2>Upcoming & Past Logs</h2>
     <table>
         <thead>
@@ -190,53 +173,34 @@
                 <th>Parent Name</th>
                 <th>Date</th>
                 <th>30-Day Window Count</th>
-                <th>Action</th>
             </tr>
         </thead>
         <tbody id="attendanceTableBody">
-            <!-- Dynamic Rows Go Here -->
+            <tr><td colspan="3" style="text-align:center; color:#999;">Fetching Google Sheet data...</td></tr>
         </tbody>
     </table>
 </div>
 
 <script>
-    // Prescribed parent list
-    const parentList = [
-        "Charlotte Stamp", 
-        "Jemma Markham", 
-        "Kat Ettridge", 
-        "Lucy Gleisner", 
-        "Michaela Whybrow", 
-        "Sarah Floyd", 
-        "Sarah Stallard", 
-        "Hugh Floyd"
-    ];
+    // 🔴 STEP 3: PASTE YOUR STEIN API URL HERE 👇
+    const STEIN_API_URL = https://api.steinhq.com/v1/storages/6a46cd0d92b1163e9713c2e0;
 
-    // Load initial data from LocalStorage or empty array
-    let attendanceRecords = JSON.parse(localStorage.getItem('squirrelsAttendance')) || [];
+    const parentList = ["Charlotte Stamp", "Jemma Markham", "Kat Ettridge", "Lucy Gleisner", "Michaela Whybrow", "Sarah Floyd", "Sarah Stallard", "Hugh Floyd"];
+    let attendanceRecords = [];
 
-    // Initialize application dropdown and view
     document.getElementById('sessionDate').valueAsDate = new Date();
     populateDropdown();
-    updateTable();
+    fetchSheetData();
 
     function populateDropdown() {
         const select = document.getElementById('parentSelect');
-        
-        // Sort the preset list alphabetically
-        const sortedParents = [...parentList].sort((a, b) => a.localeCompare(b));
-        
-        sortedParents.forEach(parent => {
+        [...parentList].sort((a, b) => a.localeCompare(b)).forEach(parent => {
             const opt = document.createElement('option');
-            opt.value = parent;
-            opt.textContent = parent;
+            opt.value = parent; opt.textContent = parent;
             select.appendChild(opt);
         });
-
-        // Add the 'Other' option at the very bottom
         const otherOpt = document.createElement('option');
-        otherOpt.value = "Other";
-        otherOpt.textContent = "Other...";
+        otherOpt.value = "Other"; otherOpt.textContent = "Other...";
         select.appendChild(otherOpt);
     }
 
@@ -251,120 +215,89 @@
         }
     }
 
-    function addAttendance() {
+    async function fetchSheetData() {
+        try {
+            const response = await fetch(`${STEIN_API_URL}/Sheet1`);
+            attendanceRecords = await response.json();
+            // Sort entries by date descending
+            attendanceRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
+            updateTable();
+        } catch (error) {
+            console.error("Error fetching data:", error);
+            document.getElementById('attendanceTableBody').innerHTML = `<tr><td colspan="3" style="text-align:center; color:red;">Failed to load data. Check URL.</td></tr>`;
+        }
+    }
+
+    async function addAttendance() {
         const select = document.getElementById('parentSelect');
         const otherInput = document.getElementById('otherName');
         const dateInput = document.getElementById('sessionDate');
+        const submitBtn = document.getElementById('submitBtn');
 
-        let name = select.value;
+        let name = select.value === "Other" ? otherInput.value.trim() : select.value;
         const date = dateInput.value;
 
-        // If 'Other' is picked, use the typed text instead
-        if (name === "Other") {
-            name = otherInput.value.trim();
-        }
-
         if (!name || !date) {
-            alert("Please select or type a Parent Name and choose a Session Date.");
-            return;
+            alert("Please complete fields."); return;
         }
 
-        // Check rolling 30-day limit
         const count = getRollingCount(name, date);
-
         if (count >= 3) {
             const banner = document.getElementById('warningBanner');
-            const msg = document.getElementById('warningMessage');
-            msg.innerText = `${name} already has ${count} visits planned within 30 days of ${date}. Adding this would exceed the maximum rule of 3 visits.`;
+            document.getElementById('warningMessage').innerText = `${name} has ${count} visits in this 30-day window.`;
             banner.style.display = 'block';
-            
-            if (!confirm(`${name} will exceed 3 visits in a 30-day rolling window. Do you still want to log this?`)) {
-                return; 
-            }
-            banner.style.display = 'none'; 
-        } else {
-            document.getElementById('warningBanner').style.display = 'none';
+            if (!confirm(`${name} will exceed 3 visits in a rolling 30 days. Log anyway?`)) return;
+            banner.style.display = 'none';
         }
 
-        // Add record
-        attendanceRecords.push({ id: Date.now(), name, date });
-        
-        // Sort by date descending
-        attendanceRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
-        
-        // Save and refresh UI
-        saveData();
-        updateTable();
+        submitBtn.disabled = true;
+        submitBtn.innerText = "Saving...";
 
-        // Reset fields
-        select.value = '';
-        otherInput.value = '';
-        document.getElementById('otherNameWrapper').style.display = 'none';
-    }
-
-    function deleteRecord(id) {
-        attendanceRecords = attendanceRecords.filter(record => record.id !== id);
-        saveData();
-        updateTable();
+        // Send row object data to Google Sheet
+        try {
+            await fetch(`${STEIN_API_URL}/Sheet1`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify([{ name: name, date: date }])
+            });
+            
+            // Refresh application UI
+            select.value = ''; otherInput.value = '';
+            document.getElementById('otherNameWrapper').style.display = 'none';
+            await fetchSheetData();
+        } catch (error) {
+            alert("Error saving data!");
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = "Add Visit";
+        }
     }
 
     function getRollingCount(parentName, targetDate) {
         const target = new Date(targetDate);
-        const parentRecords = attendanceRecords.filter(r => r.name.toLowerCase() === parentName.toLowerCase());
-        let rollingCount = 0;
-
-        parentRecords.forEach(record => {
-            const recordDate = new Date(record.date);
-            const diffTime = Math.abs(target - recordDate);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
-            if (diffDays <= 30) {
-                rollingCount++;
-            }
-        });
-
-        return rollingCount;
-    }
-
-    function saveData() {
-        localStorage.setItem('squirrelsAttendance', JSON.stringify(attendanceRecords));
+        return attendanceRecords.filter(r => r.name && r.name.toLowerCase() === parentName.toLowerCase() && 
+            Math.ceil(Math.abs(target - new Date(r.date)) / (1000 * 60 * 60 * 24)) <= 30
+        ).length;
     }
 
     function updateTable() {
         const tbody = document.getElementById('attendanceTableBody');
         tbody.innerHTML = '';
-
-        if (attendanceRecords.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#999;">No attendance logged yet.</td></tr>`;
+        if (attendanceRecords.length === 0 || !attendanceRecords[0].name) {
+            tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#999;">No entries yet.</td></tr>`;
             return;
         }
-
         attendanceRecords.forEach(record => {
+            if(!record.name) return;
             const currentCount = getRollingCount(record.name, record.date);
-            const isOverLimit = currentCount > 3;
-
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td><strong>${record.name}</strong></td>
-                <td>${formatDate(record.date)}</td>
-                <td>
-                    <span class="status-badge ${isOverLimit ? 'status-warn' : 'status-ok'}">
-                        ${currentCount} visits
-                    </span>
-                </td>
-                <td>
-                    <button class="action-btn" onclick="deleteRecord(${record.id})">Remove</button>
-                </td>
-            `;
-            tbody.appendChild(row);
+            tbody.innerHTML += `
+                <tr>
+                    <td><strong>${record.name}</strong></td>
+                    <td>${new Date(record.date).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'})}</td>
+                    <td><span class="status-badge ${currentCount > 3 ? 'status-warn' : 'status-ok'}">${currentCount} visits</span></td>
+                </tr>`;
         });
     }
-
-    function formatDate(dateString) {
-        const options = { year: 'numeric', month: 'short', day: 'numeric' };
-        return new Date(dateString).toLocaleDateString(undefined, options);
-    }
 </script>
-
 </body>
 </html>
