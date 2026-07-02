@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Squirrels Parent Attendance Tracker</title>
+    <style>
+        :root {
+            --primary-color: #5c3c92;
+            --secondary-color: #e2d8ee;
+            --warning-color: #d9534f;
+            --success-color: #5cb85c;
+            --text-color: #333;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f7f5fa;
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+
+        h1 {
+            color: var(--primary-color);
+            margin-top: 0;
+            border-bottom: 2px solid var(--secondary-color);
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            display: grid;
+            grid-template-columns: 2fr 1.5fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: flex-end;
+        }
+
+        @media (max-width: 600px) {
+            .form-group {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        label {
+            font-weight: bold;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 16px;
+            background-color: white;
+            height: 44px; /* Consistent height for mobile tapping */
+        }
+
+        #otherNameWrapper {
+            margin-top: 10px;
+            display: none;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 11px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: background 0.2s;
+            height: 44px;
+        }
+
+        button:hover {
+            background-color: #4a3075;
+        }
+
+        .warning-banner {
+            background-color: #fdf2f2;
+            border-left: 5px solid var(--warning-color);
+            color: #b91c1c;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .warning-banner h3 {
+            margin: 0 0 5px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background-color: var(--secondary-color);
+            color: var(--primary-color);
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .status-ok {
+            background-color: #e6f4ea;
+            color: #137333;
+        }
+
+        .status-warn {
+            background-color: #fce8e6;
+            color: var(--warning-color);
+        }
+
+        .action-btn {
+            background-color: #ff4d4d;
+            padding: 5px 10px;
+            font-size: 12px;
+            height: auto;
+        }
+        .action-btn:hover {
+            background-color: #cc0000;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Squirrels Attendance Tracker</h1>
+    <p>Log expected parent attendance. A warning triggers if a parent is scheduled for more than 3 visits within any rolling 30-day window.</p>
+
+    <!-- Warning Alert Box -->
+    <div id="warningBanner" class="warning-banner">
+        <h3>⚠️ Attendance Warning</h3>
+        <span id="warningMessage"></span>
+    </div>
+
+    <!-- Attendance Form -->
+    <div class="form-group">
+        <div>
+            <label for="parentSelect">Select Parent</label>
+            <select id="parentSelect" onchange="toggleOtherInput()">
+                <option value="">-- Choose a parent --</option>
+                <!-- Options will be generated alphabetically via JavaScript -->
+            </select>
+            <div id="otherNameWrapper">
+                <input type="text" id="otherName" placeholder="Type parent's full name">
+            </div>
+        </div>
+        <div>
+            <label for="sessionDate">Session Date</label>
+            <input type="date" id="sessionDate" required>
+        </div>
+        <div>
+            <button onclick="addAttendance()">Add Visit</button>
+        </div>
+    </div>
+
+    <!-- Attendance Table -->
+    <h2>Upcoming & Past Logs</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Parent Name</th>
+                <th>Date</th>
+                <th>30-Day Window Count</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="attendanceTableBody">
+            <!-- Dynamic Rows Go Here -->
+        </tbody>
+    </table>
+</div>
+
+<script>
+    // Prescribed parent list
+    const parentList = [
+        "Charlotte Stamp", 
+        "Jemma Markham", 
+        "Kat Ettridge", 
+        "Lucy Gleisner", 
+        "Michaela Whybrow", 
+        "Sarah Floyd", 
+        "Sarah Stallard", 
+        "Hugh Floyd"
+    ];
+
+    // Load initial data from LocalStorage or empty array
+    let attendanceRecords = JSON.parse(localStorage.getItem('squirrelsAttendance')) || [];
+
+    // Initialize application dropdown and view
+    document.getElementById('sessionDate').valueAsDate = new Date();
+    populateDropdown();
+    updateTable();
+
+    function populateDropdown() {
+        const select = document.getElementById('parentSelect');
+        
+        // Sort the preset list alphabetically
+        const sortedParents = [...parentList].sort((a, b) => a.localeCompare(b));
+        
+        sortedParents.forEach(parent => {
+            const opt = document.createElement('option');
+            opt.value = parent;
+            opt.textContent = parent;
+            select.appendChild(opt);
+        });
+
+        // Add the 'Other' option at the very bottom
+        const otherOpt = document.createElement('option');
+        otherOpt.value = "Other";
+        otherOpt.textContent = "Other...";
+        select.appendChild(otherOpt);
+    }
+
+    function toggleOtherInput() {
+        const select = document.getElementById('parentSelect');
+        const wrapper = document.getElementById('otherNameWrapper');
+        if (select.value === "Other") {
+            wrapper.style.display = 'block';
+            document.getElementById('otherName').focus();
+        } else {
+            wrapper.style.display = 'none';
+        }
+    }
+
+    function addAttendance() {
+        const select = document.getElementById('parentSelect');
+        const otherInput = document.getElementById('otherName');
+        const dateInput = document.getElementById('sessionDate');
+
+        let name = select.value;
+        const date = dateInput.value;
+
+        // If 'Other' is picked, use the typed text instead
+        if (name === "Other") {
+            name = otherInput.value.trim();
+        }
+
+        if (!name || !date) {
+            alert("Please select or type a Parent Name and choose a Session Date.");
+            return;
+        }
+
+        // Check rolling 30-day limit
+        const count = getRollingCount(name, date);
+
+        if (count >= 3) {
+            const banner = document.getElementById('warningBanner');
+            const msg = document.getElementById('warningMessage');
+            msg.innerText = `${name} already has ${count} visits planned within 30 days of ${date}. Adding this would exceed the maximum rule of 3 visits.`;
+            banner.style.display = 'block';
+            
+            if (!confirm(`${name} will exceed 3 visits in a 30-day rolling window. Do you still want to log this?`)) {
+                return; 
+            }
+            banner.style.display = 'none'; 
+        } else {
+            document.getElementById('warningBanner').style.display = 'none';
+        }
+
+        // Add record
+        attendanceRecords.push({ id: Date.now(), name, date });
+        
+        // Sort by date descending
+        attendanceRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        // Save and refresh UI
+        saveData();
+        updateTable();
+
+        // Reset fields
+        select.value = '';
+        otherInput.value = '';
+        document.getElementById('otherNameWrapper').style.display = 'none';
+    }
+
+    function deleteRecord(id) {
+        attendanceRecords = attendanceRecords.filter(record => record.id !== id);
+        saveData();
+        updateTable();
+    }
+
+    function getRollingCount(parentName, targetDate) {
+        const target = new Date(targetDate);
+        const parentRecords = attendanceRecords.filter(r => r.name.toLowerCase() === parentName.toLowerCase());
+        let rollingCount = 0;
+
+        parentRecords.forEach(record => {
+            const recordDate = new Date(record.date);
+            const diffTime = Math.abs(target - recordDate);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays <= 30) {
+                rollingCount++;
+            }
+        });
+
+        return rollingCount;
+    }
+
+    function saveData() {
+        localStorage.setItem('squirrelsAttendance', JSON.stringify(attendanceRecords));
+    }
+
+    function updateTable() {
+        const tbody = document.getElementById('attendanceTableBody');
+        tbody.innerHTML = '';
+
+        if (attendanceRecords.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#999;">No attendance logged yet.</td></tr>`;
+            return;
+        }
+
+        attendanceRecords.forEach(record => {
+            const currentCount = getRollingCount(record.name, record.date);
+            const isOverLimit = currentCount > 3;
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><strong>${record.name}</strong></td>
+                <td>${formatDate(record.date)}</td>
+                <td>
+                    <span class="status-badge ${isOverLimit ? 'status-warn' : 'status-ok'}">
+                        ${currentCount} visits
+                    </span>
+                </td>
+                <td>
+                    <button class="action-btn" onclick="deleteRecord(${record.id})">Remove</button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function formatDate(dateString) {
+        const options = { year: 'numeric', month: 'short', day: 'numeric' };
+        return new Date(dateString).toLocaleDateString(undefined, options);
+    }
+</script>
+
+</body>
+</html>
