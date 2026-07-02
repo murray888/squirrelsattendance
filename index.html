@@ -367,4 +367,63 @@
     }
 
     function updateSummaryTable() {
-        const tbody = document.getElementById('summary
+        const tbody = document.getElementById('summaryTableBody');
+        tbody.innerHTML = '';
+
+        // Get a unique list of all parents who have ever attended
+        const uniqueParents = [...new Set(attendanceRecords.map(r => r.name))].sort((a, b) => a.localeCompare(b));
+
+        if (uniqueParents.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="2" style="text-align:center; color:#999;">No logs recorded yet.</td></tr>`;
+            return;
+        }
+
+        uniqueParents.forEach(parentName => {
+            const currentCount = getCurrentRollingCount(parentName);
+            tbody.innerHTML += `
+                <tr>
+                    <td><strong>${parentName}</strong></td>
+                    <td><span class="status-badge ${currentCount > 3 ? 'status-warn' : 'status-ok'}">${currentCount} visits</span></td>
+                </tr>`;
+        });
+    }
+
+    function updateSessionsLog() {
+        const container = document.getElementById('sessionsRosterContainer');
+        container.innerHTML = '';
+
+        // Group rows by date
+        const sessionsMap = {};
+        attendanceRecords.forEach(record => {
+            if (!sessionsMap[record.date]) {
+                sessionsMap[record.date] = [];
+            }
+            if (!sessionsMap[record.date].includes(record.name)) {
+                sessionsMap[record.date].push(record.name);
+            }
+        });
+
+        // Sort dates descending (latest first)
+        const sortedDates = Object.keys(sessionsMap).sort((a, b) => new Date(b) - new Date(a));
+
+        if (sortedDates.length === 0) {
+            container.innerHTML = `<p style="color:#999; text-align:center;">No sessions scheduled yet.</p>`;
+            return;
+        }
+
+        sortedDates.forEach(dateStr => {
+            const formattedDate = new Date(dateStr).toLocaleDateString(undefined, {weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'});
+            const parents = sessionsMap[dateStr].sort((a,b) => a.localeCompare(b));
+            
+            let parentListHTML = parents.map(p => `<li>${p}</li>`).join('');
+
+            container.innerHTML += `
+                <div class="session-group">
+                    <div class="session-date">📅 ${formattedDate}</div>
+                    <ul class="session-parents">${parentListHTML}</ul>
+                </div>`;
+        });
+    }
+</script>
+</body>
+</html>
