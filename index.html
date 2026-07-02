@@ -22,7 +22,7 @@
         }
 
         .container {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             background: white;
             padding: 30px;
@@ -41,7 +41,7 @@
             display: grid;
             grid-template-columns: 2fr 1.5fr 1fr;
             gap: 15px;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
             align-items: flex-end;
         }
 
@@ -100,16 +100,38 @@
             display: none;
         }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
+        .tables-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
             margin-top: 20px;
         }
 
+        @media (max-width: 768px) {
+            .tables-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        h2 {
+            color: var(--primary-color);
+            font-size: 20px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--secondary-color);
+            padding-bottom: 5px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
         th, td {
-            padding: 12px;
+            padding: 10px;
             text-align: left;
             border-bottom: 1px solid #eee;
+            font-size: 15px;
         }
 
         th {
@@ -120,7 +142,7 @@
         .status-badge {
             padding: 4px 8px;
             border-radius: 4px;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: bold;
         }
 
@@ -133,13 +155,33 @@
             background-color: #fce8e6;
             color: var(--warning-color);
         }
+
+        .session-group {
+            margin-bottom: 15px;
+            background: #fdfbfd;
+            border: 1px solid #eae5f0;
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .session-date {
+            font-weight: bold;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+
+        .session-parents {
+            margin: 0;
+            padding-left: 20px;
+            color: #555;
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Squirrels Attendance Tracker</h1>
-    <p>Dynamic lists managed via Google Sheets.</p>
+    <p>Manage parent rosters, review rolling limits, and view session manifests.</p>
 
     <div id="warningBanner" class="warning-banner">
         <h3>⚠️ Attendance Warning</h3>
@@ -165,19 +207,29 @@
         </div>
     </div>
 
-    <h2>Upcoming & Past Logs</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Parent Name</th>
-                <th>Date</th>
-                <th>30-Day Window Count</th>
-            </tr>
-        </thead>
-        <tbody id="attendanceTableBody">
-            <tr><td colspan="3" style="text-align:center; color:#999;">Fetching Google Sheet data...</td></tr>
-        </tbody>
-    </table>
+    <div class="tables-grid">
+        <div>
+            <h2>Parent Summary (Rolling 30 Days)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Parent Name</th>
+                        <th>Active Window Count</th>
+                    </tr>
+                </thead>
+                <tbody id="summaryTableBody">
+                    <tr><td colspan="2" style="text-align:center; color:#999;">Loading summary...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div>
+            <h2>Sessions Roster Breakdown</h2>
+            <div id="sessionsRosterContainer">
+                <p style="color:#999; text-align:center;">Loading session rosters...</p>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -188,8 +240,6 @@
     let attendanceRecords = [];
 
     document.getElementById('sessionDate').valueAsDate = new Date();
-    
-    // Kick off loading data from both tabs
     initApp();
 
     async function initApp() {
@@ -201,7 +251,6 @@
         try {
             const response = await fetch(`${STEIN_API_URL}/Parents`);
             const data = await response.json();
-            // Pull name values and clean out empty rows
             parentList = data.map(p => p.name).filter(name => name);
             populateDropdown();
         } catch (error) {
@@ -212,14 +261,11 @@
     function populateDropdown() {
         const select = document.getElementById('parentSelect');
         select.innerHTML = '<option value="">-- Choose a parent --</option>';
-        
-        // Sort roster alphabetically
         [...parentList].sort((a, b) => a.localeCompare(b)).forEach(parent => {
             const opt = document.createElement('option');
             opt.value = parent; opt.textContent = parent;
             select.appendChild(opt);
         });
-        
         const otherOpt = document.createElement('option');
         otherOpt.value = "Other"; otherOpt.textContent = "Other...";
         select.appendChild(otherOpt);
@@ -240,11 +286,10 @@
         try {
             const response = await fetch(`${STEIN_API_URL}/Sheet1`);
             attendanceRecords = await response.json();
-            attendanceRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
-            updateTable();
+            attendanceRecords = attendanceRecords.filter(r => r.name && r.date);
+            updateUI();
         } catch (error) {
             console.error("Error fetching attendance:", error);
-            document.getElementById('attendanceTableBody').innerHTML = `<tr><td colspan="3" style="text-align:center; color:red;">Failed to load data.</td></tr>`;
         }
     }
 
@@ -262,7 +307,7 @@
             alert("Please complete fields."); return;
         }
 
-        const count = getRollingCount(name, date);
+        const count = getRollingCountForDate(name, date);
         if (count >= 3) {
             const banner = document.getElementById('warningBanner');
             document.getElementById('warningMessage').innerText = `${name} has ${count} visits in this 30-day window.`;
@@ -275,7 +320,6 @@
         submitBtn.innerText = "Saving...";
 
         try {
-            // 1. If it's a new parent, save them to the "Parents" tab
             if (isNewParent) {
                 await fetch(`${STEIN_API_URL}/Parents`, {
                     method: "POST",
@@ -284,18 +328,14 @@
                 });
             }
 
-            // 2. Log the actual attendance visit in "Sheet1"
             await fetch(`${STEIN_API_URL}/Sheet1`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify([{ name: name, date: date }])
             });
             
-            // Clean up inputs
             select.value = ''; otherInput.value = '';
             document.getElementById('otherNameWrapper').style.display = 'none';
-            
-            // Re-sync UI completely
             await initApp();
         } catch (error) {
             alert("Error saving data!");
@@ -305,31 +345,26 @@
         }
     }
 
-    function getRollingCount(parentName, targetDate) {
+    // Helper: Count for a theoretical point in time (for form warnings)
+    function getRollingCountForDate(parentName, targetDate) {
         const target = new Date(targetDate);
-        return attendanceRecords.filter(r => r.name && r.name.toLowerCase() === parentName.toLowerCase() && 
+        return attendanceRecords.filter(r => r.name.toLowerCase() === parentName.toLowerCase() && 
             Math.ceil(Math.abs(target - new Date(r.date)) / (1000 * 60 * 60 * 24)) <= 30
         ).length;
     }
 
-    function updateTable() {
-        const tbody = document.getElementById('attendanceTableBody');
-        tbody.innerHTML = '';
-        if (attendanceRecords.length === 0 || !attendanceRecords[0].name) {
-            tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#999;">No entries yet.</td></tr>`;
-            return;
-        }
-        attendanceRecords.forEach(record => {
-            if(!record.name) return;
-            const currentCount = getRollingCount(record.name, record.date);
-            tbody.innerHTML += `
-                <tr>
-                    <td><strong>${record.name}</strong></td>
-                    <td>${new Date(record.date).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'})}</td>
-                    <td><span class="status-badge ${currentCount > 3 ? 'status-warn' : 'status-ok'}">${currentCount} visits</span></td>
-                </tr>`;
-        });
+    // Helper: Count relative to *today* (for the Summary Table status)
+    function getCurrentRollingCount(parentName) {
+        const today = new Date();
+        return attendanceRecords.filter(r => r.name.toLowerCase() === parentName.toLowerCase() && 
+            Math.ceil(Math.abs(today - new Date(r.date)) / (1000 * 60 * 60 * 24)) <= 30
+        ).length;
     }
-</script>
-</body>
-</html>
+
+    function updateUI() {
+        updateSummaryTable();
+        updateSessionsLog();
+    }
+
+    function updateSummaryTable() {
+        const tbody = document.getElementById('summary
