@@ -1,10 +1,9 @@
-HTML
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Squirrels Parent Attendance Tracker (Google Sheets)</title>
+    <title>Squirrels Parent Attendance Tracker</title>
     <style>
         :root {
             --primary-color: #5c3c92;
@@ -140,7 +139,7 @@ HTML
 
 <div class="container">
     <h1>Squirrels Attendance Tracker</h1>
-    <p>Data links directly to your Google Sheet on Drive.</p>
+    <p>Dynamic lists managed via Google Sheets.</p>
 
     <div id="warningBanner" class="warning-banner">
         <h3>⚠️ Attendance Warning</h3>
@@ -151,10 +150,10 @@ HTML
         <div>
             <label for="parentSelect">Select Parent</label>
             <select id="parentSelect" onchange="toggleOtherInput()">
-                <option value="">-- Choose a parent --</option>
+                <option value="">Loading list...</option>
             </select>
             <div id="otherNameWrapper">
-                <input type="text" id="otherName" placeholder="Type parent's full name">
+                <input type="text" id="otherName" placeholder="Type new parent's full name">
             </div>
         </div>
         <div>
@@ -182,23 +181,45 @@ HTML
 </div>
 
 <script>
-    // 🔴 STEP 3: PASTE YOUR STEIN API URL HERE 👇
+    // 🔴 PASTE YOUR STEIN API URL HERE 👇
     const STEIN_API_URL = "https://api.steinhq.com/v1/storages/6a46cd0d92b1163e9713c2e0";
 
-    const parentList = ["Charlotte Stamp", "Jemma Markham", "Kat Ettridge", "Lucy Gleisner", "Michaela Whybrow", "Sarah Floyd", "Sarah Stallard", "Hugh Floyd"];
+    let parentList = [];
     let attendanceRecords = [];
 
     document.getElementById('sessionDate').valueAsDate = new Date();
-    populateDropdown();
-    fetchSheetData();
+    
+    // Kick off loading data from both tabs
+    initApp();
+
+    async function initApp() {
+        await fetchParentList();
+        await fetchSheetData();
+    }
+
+    async function fetchParentList() {
+        try {
+            const response = await fetch(`${STEIN_API_URL}/Parents`);
+            const data = await response.json();
+            // Pull name values and clean out empty rows
+            parentList = data.map(p => p.name).filter(name => name);
+            populateDropdown();
+        } catch (error) {
+            console.error("Error loading parents list:", error);
+        }
+    }
 
     function populateDropdown() {
         const select = document.getElementById('parentSelect');
+        select.innerHTML = '<option value="">-- Choose a parent --</option>';
+        
+        // Sort roster alphabetically
         [...parentList].sort((a, b) => a.localeCompare(b)).forEach(parent => {
             const opt = document.createElement('option');
             opt.value = parent; opt.textContent = parent;
             select.appendChild(opt);
         });
+        
         const otherOpt = document.createElement('option');
         otherOpt.value = "Other"; otherOpt.textContent = "Other...";
         select.appendChild(otherOpt);
@@ -219,12 +240,11 @@ HTML
         try {
             const response = await fetch(`${STEIN_API_URL}/Sheet1`);
             attendanceRecords = await response.json();
-            // Sort entries by date descending
             attendanceRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
             updateTable();
         } catch (error) {
-            console.error("Error fetching data:", error);
-            document.getElementById('attendanceTableBody').innerHTML = `<tr><td colspan="3" style="text-align:center; color:red;">Failed to load data. Check URL.</td></tr>`;
+            console.error("Error fetching attendance:", error);
+            document.getElementById('attendanceTableBody').innerHTML = `<tr><td colspan="3" style="text-align:center; color:red;">Failed to load data.</td></tr>`;
         }
     }
 
@@ -234,7 +254,8 @@ HTML
         const dateInput = document.getElementById('sessionDate');
         const submitBtn = document.getElementById('submitBtn');
 
-        let name = select.value === "Other" ? otherInput.value.trim() : select.value;
+        let isNewParent = (select.value === "Other");
+        let name = isNewParent ? otherInput.value.trim() : select.value;
         const date = dateInput.value;
 
         if (!name || !date) {
@@ -253,18 +274,29 @@ HTML
         submitBtn.disabled = true;
         submitBtn.innerText = "Saving...";
 
-        // Send row object data to Google Sheet
         try {
+            // 1. If it's a new parent, save them to the "Parents" tab
+            if (isNewParent) {
+                await fetch(`${STEIN_API_URL}/Parents`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify([{ name: name }])
+                });
+            }
+
+            // 2. Log the actual attendance visit in "Sheet1"
             await fetch(`${STEIN_API_URL}/Sheet1`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify([{ name: name, date: date }])
             });
             
-            // Refresh application UI
+            // Clean up inputs
             select.value = ''; otherInput.value = '';
             document.getElementById('otherNameWrapper').style.display = 'none';
-            await fetchSheetData();
+            
+            // Re-sync UI completely
+            await initApp();
         } catch (error) {
             alert("Error saving data!");
         } finally {
